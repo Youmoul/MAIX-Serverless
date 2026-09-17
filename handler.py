@@ -82,7 +82,8 @@ def handler(event):
         "compiled_prompt": final_prompt,
     }
 
-if __name__ == "__main__":
-    # Loading once per worker avoids reloading models for every request.
-    warm_worker()
-    runpod.serverless.start({"handler": handler})
+# Warm models once when the Serverless worker starts.
+warm_worker()
+
+# Start RunPod Serverless Queue worker.
+runpod.serverless.start({"handler": handler})
