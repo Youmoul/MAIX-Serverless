@@ -1,5 +1,6 @@
 import os
 import subprocess
+import traceback
 
 import runpod
 
@@ -8,19 +9,23 @@ from config import (
     DEFAULT_DURATION,
     DEFAULT_REFERENCE_SECONDS,
 )
+
 from maestro import (
     wait_for_ollama,
     chat_with_maestro,
     compile_music_prompt,
 )
+
 from audio_utils import (
     decode_reference,
     encode_file_b64,
 )
+
 from music_engine import (
     generate_sample,
     warm_musicgen,
 )
+
 from chop_engine import (
     intelligent_chop,
     equal_chop,
@@ -67,7 +72,8 @@ def ensure_qwen():
 
     if result.returncode != 0:
         print(
-            f"{model} not found. Downloading..."
+            f"{model} not found. Downloading...",
+            flush=True,
         )
 
         subprocess.run(
@@ -76,18 +82,64 @@ def ensure_qwen():
         )
 
         print(
-            f"{model} downloaded successfully."
+            f"{model} downloaded successfully.",
+            flush=True,
         )
+
     else:
         print(
-            f"{model} found in cache."
+            f"{model} found in cache.",
+            flush=True,
         )
 
 
 def warm_worker():
-    start_ollama()
-    ensure_qwen()
-    warm_musicgen()
+    print(
+        "========== MAIX B WORKER STARTUP ==========",
+        flush=True,
+    )
+
+    try:
+        print(
+            "[MAIX] Starting Ollama...",
+            flush=True,
+        )
+        start_ollama()
+
+        print(
+            "[MAIX] Checking Qwen...",
+            flush=True,
+        )
+        ensure_qwen()
+
+        print(
+            "[MAIX] Loading MusicGen...",
+            flush=True,
+        )
+        warm_musicgen()
+
+        print(
+            "========== MAIX B WORKER READY ==========",
+            flush=True,
+        )
+
+    except Exception:
+        print(
+            "\n"
+            "============================================================\n"
+            "MAIX MUSICGEN / WORKER STARTUP ERROR\n"
+            "============================================================",
+            flush=True,
+        )
+
+        traceback.print_exc()
+
+        print(
+            "============================================================\n",
+            flush=True,
+        )
+
+        raise
 
 
 def _prepare_chop_response(
@@ -101,6 +153,7 @@ def _prepare_chop_response(
     Internal filesystem paths are removed before
     returning the response.
     """
+
     browser_slices = []
 
     for slice_info in slices:
