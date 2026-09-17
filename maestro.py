@@ -1,5 +1,6 @@
-import os
 import json
+import time
+
 import ollama
 
 from config import OLLAMA_MODEL
@@ -99,6 +100,24 @@ Do not use headings.
 """
 
 
+def wait_for_ollama(timeout=60):
+    """
+    Wait until the local Ollama server is ready.
+    """
+    start = time.time()
+
+    while time.time() - start < timeout:
+        try:
+            ollama.list()
+            return
+        except Exception:
+            time.sleep(1)
+
+    raise RuntimeError(
+        f"Ollama did not become ready within {timeout} seconds."
+    )
+
+
 def _clean_conversation(conversation):
     """
     Remove SAMPLE trigger messages and normalize conversation messages.
@@ -141,8 +160,8 @@ def get_latest_maestro_direction(conversation):
     """
     Return Maestro's most recent musical response.
 
-    The web client will eventually send this explicitly as well, but this
-    fallback makes the Serverless backend robust when called directly.
+    The web client can send this explicitly as well, but this fallback
+    keeps the Serverless backend robust when called directly.
     """
     cleaned = _clean_conversation(conversation)
 
@@ -177,21 +196,14 @@ def compile_music_prompt(
     """
     Compile the complete conversation into the final MusicGen prompt.
 
-    The latest Maestro direction is explicitly separated from the rest of
-    the conversation so the compiler treats it as the current musical
+    The latest Maestro direction is explicitly separated from the rest
+    of the conversation so the compiler treats it as the current musical
     decision rather than averaging all previous ideas equally.
     """
     cleaned = _clean_conversation(conversation)
 
     if not latest_maestro_direction:
         latest_maestro_direction = get_latest_maestro_direction(cleaned)
-
-    payload = {
-        "bpm": bpm,
-        "reference_audio": bool(has_reference),
-        "latest_maestro_direction": latest_maestro_direction or "",
-        "conversation": cleaned,
-    }
 
     user_prompt = f"""
 Compile the following MAIX composition session into the final MusicGen
