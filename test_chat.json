@@ -1,0 +1,11 @@
+{
+  "input": {
+    "action": "chat",
+    "conversation": [
+      {
+        "role": "user",
+        "content": "I want dark late-70s orchestral soul with Rhodes and strings, but I want the melody to keep developing."
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "input": {
+    "action": "sample",
+    "command": "SAMPLE",
+    "bpm": 92,
+    "duration": 20,
+    "conversation": [
+      {
+        "role": "user",
+        "content": "I want dark late-70s orchestral soul with Rhodes and strings."
+      },
+      {
+        "role": "assistant",
+        "content": "We can use extended minor voicings, an independent melodic bass and strings that enter gradually while the main motif changes shape."
+      },
+      {
+        "role": "user",
+        "content": "Make the harmony evolve and avoid an obvious four-bar loop."
+      }
+    ]
+  }
+}
