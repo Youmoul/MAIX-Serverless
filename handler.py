@@ -23,11 +23,33 @@ def start_ollama():
         )
     wait_for_ollama()
 
+def ensure_qwen():
+    model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+
+    # Check persistent Ollama storage first.
+    result = subprocess.run(
+        ["ollama", "show", model],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    if result.returncode != 0:
+        print(f"{model} not found. Downloading...")
+        subprocess.run(
+            ["ollama", "pull", model],
+            check=True,
+        )
+        print(f"{model} downloaded successfully.")
+    else:
+        print(f"{model} found in cache.")
+
+
 def warm_worker():
     start_ollama()
-    # qwen3:8b is baked into the image; this verifies it is available.
-    subprocess.run(["ollama", "show", os.getenv("OLLAMA_MODEL", "qwen3:8b")],
-                   check=True, stdout=subprocess.DEVNULL)
+    ensure_qwen()
+
+    # MusicGen.get_pretrained() will use the Hugging Face cache.
+    # If the model is absent, it will be downloaded there.
     warm_musicgen()
 
 def handler(event):
