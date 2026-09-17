@@ -1,12 +1,30 @@
 import os
 import subprocess
+
 import runpod
 
-from config import DEFAULT_BPM, DEFAULT_DURATION, DEFAULT_REFERENCE_SECONDS
-from maestro import wait_for_ollama, chat_with_maestro, compile_music_prompt
-from audio_utils import decode_reference, encode_file_b64
-from music_engine import generate_sample, warm_musicgen
-from chop_engine import intelligent_chop
+from config import (
+    DEFAULT_BPM,
+    DEFAULT_DURATION,
+    DEFAULT_REFERENCE_SECONDS,
+)
+from maestro import (
+    wait_for_ollama,
+    chat_with_maestro,
+    compile_music_prompt,
+)
+from audio_utils import (
+    decode_reference,
+    encode_file_b64,
+)
+from music_engine import (
+    generate_sample,
+    warm_musicgen,
+)
+from chop_engine import (
+    intelligent_chop,
+    equal_chop,
+)
 
 
 _ollama_process = None
@@ -15,9 +33,15 @@ _ollama_process = None
 def start_ollama():
     global _ollama_process
 
-    if _ollama_process is None or _ollama_process.poll() is not None:
+    if (
+        _ollama_process is None
+        or _ollama_process.poll() is not None
+    ):
         env = os.environ.copy()
-        env.setdefault("OLLAMA_HOST", "127.0.0.1:11434")
+        env.setdefault(
+            "OLLAMA_HOST",
+            "127.0.0.1:11434",
+        )
 
         _ollama_process = subprocess.Popen(
             ["ollama", "serve"],
@@ -30,7 +54,10 @@ def start_ollama():
 
 
 def ensure_qwen():
-    model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+    model = os.getenv(
+        "OLLAMA_MODEL",
+        "qwen3:8b",
+    )
 
     result = subprocess.run(
         ["ollama", "show", model],
@@ -39,22 +66,70 @@ def ensure_qwen():
     )
 
     if result.returncode != 0:
-        print(f"{model} not found. Downloading...")
+        print(
+            f"{model} not found. Downloading..."
+        )
 
         subprocess.run(
             ["ollama", "pull", model],
             check=True,
         )
 
-        print(f"{model} downloaded successfully.")
+        print(
+            f"{model} downloaded successfully."
+        )
     else:
-        print(f"{model} found in cache.")
+        print(
+            f"{model} found in cache."
+        )
 
 
 def warm_worker():
     start_ollama()
     ensure_qwen()
     warm_musicgen()
+
+
+def _prepare_chop_response(
+    zip_path,
+    slices,
+    mode,
+):
+    """
+    Convert internal chop files to browser-ready base64.
+
+    Internal filesystem paths are removed before
+    returning the response.
+    """
+    browser_slices = []
+
+    for slice_info in slices:
+        item = dict(slice_info)
+
+        path = item.pop(
+            "path",
+            None,
+        )
+
+        if path:
+            item["audio_base64"] = (
+                encode_file_b64(path)
+            )
+
+        browser_slices.append(item)
+
+    return {
+        "type": "chop",
+        "mode": mode,
+        "slice_count": len(
+            browser_slices
+        ),
+        "slices": browser_slices,
+        "format": "zip",
+        "zip_base64": encode_file_b64(
+            zip_path
+        ),
+    }
 
 
 def handler(event):
@@ -64,9 +139,10 @@ def handler(event):
         data.get("action", "")
     ).strip().lower()
 
-    conversation = data.get(
-        "conversation"
-    ) or []
+    conversation = (
+        data.get("conversation")
+        or []
+    )
 
     # ---------------------------------------------------------
     # HEALTH
@@ -79,7 +155,7 @@ def handler(event):
         }
 
     # ---------------------------------------------------------
-    # INTELLIGENT CHOP
+    # CHOP
     # ---------------------------------------------------------
 
     if action == "chop":
@@ -115,32 +191,92 @@ def handler(event):
                 ),
             }
 
-        max_slices = int(
+        chop_mode = str(
             data.get(
-                "max_slices",
+                "chop_mode",
+                "intelligent",
+            )
+        ).strip().lower()
+
+        slice_count = int(
+            data.get(
+                "slice_count",
                 16,
             )
         )
 
-        zip_path, slices = intelligent_chop(
-            input_path=input_path,
-            max_slices=max_slices,
-            min_slice_seconds=2.0,
-            pre_peak_offset=0.002,
-        )
+        if slice_count not in (
+            4,
+            8,
+            16,
+            32,
+        ):
+            return {
+                "type": "error",
+                "error": (
+                    "slice_count must be "
+                    "4, 8, 16 or 32."
+                ),
+            }
 
-        return {
-            "type": "chop",
-            "mode": "intelligent",
-            "pre_peak_ms": 2,
-            "minimum_slice_seconds": 2.0,
-            "slice_count": len(slices),
-            "slices": slices,
-            "format": "zip",
-            "zip_base64": encode_file_b64(
-                zip_path
-            ),
-        }
+        try:
+            if chop_mode == "intelligent":
+                zip_path, slices = (
+                    intelligent_chop(
+                        input_path=input_path,
+                        max_slices=slice_count,
+                        min_slice_seconds=2.0,
+                        pre_peak_offset=0.002,
+                    )
+                )
+
+                response = (
+                    _prepare_chop_response(
+                        zip_path,
+                        slices,
+                        "intelligent",
+                    )
+                )
+
+                response[
+                    "pre_peak_ms"
+                ] = 2
+
+                response[
+                    "minimum_slice_seconds"
+                ] = 2.0
+
+                return response
+
+            if chop_mode == "equal":
+                zip_path, slices = (
+                    equal_chop(
+                        input_path=input_path,
+                        slice_count=slice_count,
+                    )
+                )
+
+                return (
+                    _prepare_chop_response(
+                        zip_path,
+                        slices,
+                        "equal",
+                    )
+                )
+
+            return {
+                "type": "error",
+                "error": (
+                    "chop_mode must be "
+                    "'intelligent' or 'equal'."
+                ),
+            }
+
+        except Exception as error:
+            return {
+                "type": "error",
+                "error": str(error),
+            }
 
     # ---------------------------------------------------------
     # MAESTRO
@@ -295,12 +431,14 @@ def handler(event):
     # MUSICGEN
     # ---------------------------------------------------------
 
-    wav_path, sample_rate = generate_sample(
-        prompt=final_prompt,
-        duration=duration,
-        reference_path=reference_path,
-        reference_start=reference_start,
-        reference_seconds=reference_seconds,
+    wav_path, sample_rate = (
+        generate_sample(
+            prompt=final_prompt,
+            duration=duration,
+            reference_path=reference_path,
+            reference_start=reference_start,
+            reference_seconds=reference_seconds,
+        )
     )
 
     # ---------------------------------------------------------
@@ -311,12 +449,18 @@ def handler(event):
         "type": "sample",
         "sample_rate": sample_rate,
         "format": "wav",
-        "audio_base64": encode_file_b64(
-            wav_path
+        "audio_base64": (
+            encode_file_b64(
+                wav_path
+            )
         ),
         "compiled_prompt": final_prompt,
-        "reference_start": reference_start,
-        "reference_seconds": reference_seconds,
+        "reference_start": (
+            reference_start
+        ),
+        "reference_seconds": (
+            reference_seconds
+        ),
         "latest_maestro_direction": (
             latest_maestro_direction
         ),
