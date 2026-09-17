@@ -6,6 +6,7 @@ from config import DEFAULT_BPM, DEFAULT_DURATION, DEFAULT_REFERENCE_SECONDS
 from maestro import wait_for_ollama, chat_with_maestro, compile_music_prompt
 from audio_utils import decode_reference, encode_file_b64
 from music_engine import generate_sample, warm_musicgen
+from chop_engine import intelligent_chop
 
 
 _ollama_process = None
@@ -31,7 +32,6 @@ def start_ollama():
 def ensure_qwen():
     model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
-    # Check persistent Ollama storage first.
     result = subprocess.run(
         ["ollama", "show", model],
         stdout=subprocess.DEVNULL,
@@ -54,34 +54,104 @@ def ensure_qwen():
 def warm_worker():
     start_ollama()
     ensure_qwen()
-
-    # MusicGen.get_pretrained() uses the configured model cache.
-    # If the model is absent, it will be downloaded there.
     warm_musicgen()
 
 
 def handler(event):
     data = event.get("input") or {}
 
-    action = str(data.get("action", "")).strip().lower()
-    conversation = data.get("conversation") or []
+    action = str(
+        data.get("action", "")
+    ).strip().lower()
+
+    conversation = data.get(
+        "conversation"
+    ) or []
 
     # ---------------------------------------------------------
-    # Health
+    # HEALTH
     # ---------------------------------------------------------
+
     if action == "health":
         return {
             "ok": True,
             "service": "MAIX B",
         }
 
-    start_ollama()
+    # ---------------------------------------------------------
+    # INTELLIGENT CHOP
+    # ---------------------------------------------------------
+
+    if action == "chop":
+        audio_b64 = data.get(
+            "audio_base64"
+        )
+
+        filename = data.get(
+            "filename",
+            "input.wav",
+        )
+
+        if not audio_b64:
+            return {
+                "type": "error",
+                "error": (
+                    "CHOP requires an input "
+                    "MP3 or WAV file."
+                ),
+            }
+
+        input_path = decode_reference(
+            audio_b64,
+            filename,
+        )
+
+        if input_path is None:
+            return {
+                "type": "error",
+                "error": (
+                    "The input audio could "
+                    "not be decoded."
+                ),
+            }
+
+        max_slices = int(
+            data.get(
+                "max_slices",
+                16,
+            )
+        )
+
+        zip_path, slices = intelligent_chop(
+            input_path=input_path,
+            max_slices=max_slices,
+            min_slice_seconds=2.0,
+            pre_peak_offset=0.002,
+        )
+
+        return {
+            "type": "chop",
+            "mode": "intelligent",
+            "pre_peak_ms": 2,
+            "minimum_slice_seconds": 2.0,
+            "slice_count": len(slices),
+            "slices": slices,
+            "format": "zip",
+            "zip_base64": encode_file_b64(
+                zip_path
+            ),
+        }
 
     # ---------------------------------------------------------
-    # Maestro conversation
+    # MAESTRO
     # ---------------------------------------------------------
+
+    start_ollama()
+
     if action == "chat":
-        reply = chat_with_maestro(conversation)
+        reply = chat_with_maestro(
+            conversation
+        )
 
         return {
             "type": "chat",
@@ -89,37 +159,62 @@ def handler(event):
         }
 
     # ---------------------------------------------------------
-    # SAMPLE safety gate
+    # SAMPLE SAFETY GATE
     # ---------------------------------------------------------
-    # Audio generation happens only with the exact SAMPLE command.
-    command = str(data.get("command", "")).strip()
 
-    if action != "sample" or command.upper() != "SAMPLE":
+    command = str(
+        data.get("command", "")
+    ).strip()
+
+    if (
+        action != "sample"
+        or command.upper() != "SAMPLE"
+    ):
         return {
             "type": "error",
             "error": (
                 "Audio is generated only when "
-                "action='sample' and command='SAMPLE'."
+                "action='sample' and "
+                "command='SAMPLE'."
             ),
         }
 
     # ---------------------------------------------------------
-    # Generation parameters
+    # GENERATION PARAMETERS
     # ---------------------------------------------------------
-    bpm = int(data.get("bpm", DEFAULT_BPM))
-    duration = float(data.get("duration", DEFAULT_DURATION))
+
+    bpm = int(
+        data.get(
+            "bpm",
+            DEFAULT_BPM,
+        )
+    )
+
+    duration = float(
+        data.get(
+            "duration",
+            DEFAULT_DURATION,
+        )
+    )
 
     # ---------------------------------------------------------
-    # Reference song
+    # REFERENCE SONG
     # ---------------------------------------------------------
-    reference_b64 = data.get("reference_audio_base64")
+
+    reference_b64 = data.get(
+        "reference_audio_base64"
+    )
+
     reference_name = data.get(
         "reference_filename",
         "reference.wav",
     )
 
     reference_start = float(
-        data.get("reference_start", 0.0)
+        data.get(
+            "reference_start",
+            0.0,
+        )
     )
 
     reference_seconds = float(
@@ -129,29 +224,34 @@ def handler(event):
         )
     )
 
-    # MAIX B requires a reference song for SAMPLE generation.
     if not reference_b64:
         return {
             "type": "error",
             "error": (
-                "MAIX B requires an input reference song "
-                "before SAMPLE generation."
+                "MAIX B requires an input "
+                "reference song before "
+                "SAMPLE generation."
             ),
         }
 
     if reference_start < 0:
         return {
             "type": "error",
-            "error": "reference_start cannot be negative.",
+            "error": (
+                "reference_start cannot "
+                "be negative."
+            ),
         }
 
     if reference_seconds <= 0:
         return {
             "type": "error",
-            "error": "reference_seconds must be greater than zero.",
+            "error": (
+                "reference_seconds must "
+                "be greater than zero."
+            ),
         }
 
-    # Decode the COMPLETE uploaded song.
     reference_path = decode_reference(
         reference_b64,
         reference_name,
@@ -160,39 +260,41 @@ def handler(event):
     if reference_path is None:
         return {
             "type": "error",
-            "error": "The reference song could not be decoded.",
+            "error": (
+                "The reference song could "
+                "not be decoded."
+            ),
         }
 
     # ---------------------------------------------------------
-    # Latest Maestro musical direction
+    # LATEST MAESTRO DIRECTION
     # ---------------------------------------------------------
+
     latest_maestro_direction = str(
-        data.get("latest_maestro_direction", "")
+        data.get(
+            "latest_maestro_direction",
+            "",
+        )
     ).strip()
 
     # ---------------------------------------------------------
-    # Compile musical conversation
+    # COMPILE PROMPT
     # ---------------------------------------------------------
+
     final_prompt = compile_music_prompt(
         conversation=conversation,
         bpm=bpm,
         has_reference=True,
-        latest_maestro_direction=latest_maestro_direction or None,
+        latest_maestro_direction=(
+            latest_maestro_direction
+            or None
+        ),
     )
 
     # ---------------------------------------------------------
-    # MusicGen
+    # MUSICGEN
     # ---------------------------------------------------------
-    # music_engine.py receives the complete decoded reference song,
-    # plus the selected start position and reference length.
-    #
-    # It is responsible for extracting:
-    #
-    #     reference_start
-    #          ↓
-    #     reference_seconds
-    #
-    # before passing the selected region to MusicGen Melody.
+
     wav_path, sample_rate = generate_sample(
         prompt=final_prompt,
         duration=duration,
@@ -202,22 +304,28 @@ def handler(event):
     )
 
     # ---------------------------------------------------------
-    # Response
+    # SAMPLE RESPONSE
     # ---------------------------------------------------------
+
     return {
         "type": "sample",
         "sample_rate": sample_rate,
         "format": "wav",
-        "audio_base64": encode_file_b64(wav_path),
+        "audio_base64": encode_file_b64(
+            wav_path
+        ),
         "compiled_prompt": final_prompt,
         "reference_start": reference_start,
         "reference_seconds": reference_seconds,
-        "latest_maestro_direction": latest_maestro_direction,
+        "latest_maestro_direction": (
+            latest_maestro_direction
+        ),
     }
 
 
 # Warm models once when the Serverless worker starts.
 warm_worker()
 
-# Start RunPod Serverless Queue worker.
-runpod.serverless.start({"handler": handler})
+runpod.serverless.start({
+    "handler": handler
+})
