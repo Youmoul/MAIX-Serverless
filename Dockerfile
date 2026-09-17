@@ -31,22 +31,6 @@ RUN python3.10 -m pip install -r requirements-serverless.txt
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Bake Qwen into the image so workers do not download it for every cold start.
-RUN ollama serve >/tmp/ollama-build.log 2>&1 & \
-    OLLAMA_PID=$!; \
-    for i in $(seq 1 60); do \
-      ollama list >/dev/null 2>&1 && break; sleep 1; \
-    done; \
-    ollama pull qwen3:8b; \
-    kill $OLLAMA_PID || true
 
-COPY config.py maestro.py audio_utils.py music_engine.py handler.py /app/
-
-# Optional: pre-download MusicGen during image build.
-# This makes the image larger but avoids downloading model weights on a cold worker.
-RUN python3.10 - <<'PY'
-from audiocraft.models import MusicGen
-MusicGen.get_pretrained("facebook/musicgen-melody", device="cpu")
-print("MusicGen Melody cached.")
-PY
 
 CMD ["python3.10", "-u", "/app/handler.py"]
