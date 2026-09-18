@@ -147,13 +147,6 @@ def _prepare_chop_response(
     slices,
     mode,
 ):
-    """
-    Convert internal chop files to browser-ready base64.
-
-    Internal filesystem paths are removed before
-    returning the response.
-    """
-
     browser_slices = []
 
     for slice_info in slices:
@@ -478,6 +471,7 @@ def handler(event):
             latest_maestro_direction
             or None
         ),
+        duration=duration,
     )
 
     # ---------------------------------------------------------
@@ -508,6 +502,7 @@ def handler(event):
             )
         ),
         "compiled_prompt": final_prompt,
+        "duration": duration,
         "reference_start": (
             reference_start
         ),
@@ -520,7 +515,6 @@ def handler(event):
     }
 
 
-# Warm models once when the Serverless worker starts.
 warm_worker()
 
 runpod.serverless.start({
