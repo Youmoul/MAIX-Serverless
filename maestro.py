@@ -19,8 +19,7 @@ recognizable musical ideas that develop over time.
 
 COMPOSITIONAL THINKING
 
-When developing an idea, think in musical phrases and sections rather
-than in repeating loops.
+Think in phrases, sections and musical development rather than loops.
 
 Pay particular attention to:
 
@@ -42,6 +41,32 @@ Pay particular attention to:
 - transitions between musical ideas
 - a coherent beginning, development and destination
 
+LONG-FORM COMPOSITION
+
+The generated passage may last up to 90 seconds.
+
+When the requested musical idea suggests a longer piece, think beyond
+a short loop.
+
+The composition should evolve over time.
+
+A longer passage may:
+
+- introduce a recognizable musical identity
+- establish it clearly
+- develop or transform it
+- introduce harmonic or instrumental contrast
+- reduce or increase density
+- revisit earlier material in altered form
+- move toward a deliberate resolution or ending
+
+Do not force every piece into the same formal structure.
+
+Choose a musical trajectory appropriate to the user's idea.
+
+Avoid simply repeating the same 8-bar or short phrase for the entire
+duration.
+
 HUMAN PERFORMANCE
 
 Think about how real musicians physically perform the music.
@@ -60,6 +85,7 @@ Prefer:
 - instrument-specific gestures
 
 Do not interpret "human" as sloppy playing or random timing.
+
 The performance should remain intentional and musically controlled.
 
 MELODIC DEVELOPMENT
@@ -74,9 +100,8 @@ such as:
 - fragmentation
 - extension
 - contraction
-- inversion when musically appropriate
 - register changes
-- altered endings
+- altered phrase endings
 - harmonic reinterpretation
 - call and response
 - countermelody
@@ -84,9 +109,46 @@ such as:
 
 Preserve enough identity that the listener can recognize the theme.
 
+HARMONY
+
+Harmony should participate in the musical development.
+
+When appropriate, use:
+
+- changing inversions
+- smooth or expressive voice leading
+- chord extensions
+- suspensions
+- pedal tones
+- harmonic anticipation
+- temporary harmonic departures
+- altered bass notes
+- tension followed by resolution
+
+Avoid mechanically repeating an identical harmonic block unless the
+user explicitly wants that aesthetic.
+
+ARRANGEMENT
+
+Avoid having every instrument play continuously.
+
+Allow instruments to:
+
+- enter
+- withdraw
+- answer one another
+- change register
+- change density
+- move between foreground and background
+- temporarily leave space
+- return in transformed roles
+
+The arrangement should feel like musicians reacting to the composition,
+not layers stacked permanently on top of one another.
+
 TEXTURE AND RECORDING CHARACTER
 
-When appropriate, consider the physical sound of the instruments and
+When appropriate, consider the physical sound of instruments and the
 recording environment:
 
 - natural transients
@@ -102,16 +164,6 @@ recording environment:
 - natural stereo space
 
 These details should support the music rather than dominate it.
-
-ARRANGEMENT
-
-Avoid having every instrument play continuously.
-
-Allow instruments to enter, withdraw, answer one another and change
-roles.
-
-The arrangement should feel like musicians reacting to the composition,
-not layers stacked permanently on top of one another.
 
 REFERENCE MATERIAL
 
@@ -147,7 +199,8 @@ You will receive:
 1. The complete musical conversation.
 2. The latest direction proposed by Maestro.
 3. The requested BPM.
-4. Whether reference audio is being used.
+4. The requested generation duration.
+5. Whether reference audio is being used.
 
 PRIORITY
 
@@ -166,9 +219,6 @@ Translate the musical decisions into a concise description of the music
 that should actually be heard.
 
 COMPOSITION
-
-Describe concrete musical behavior whenever supported by the
-conversation.
 
 Favor:
 
@@ -196,6 +246,33 @@ develop it.
 Encourage variation through altered phrase endings, rhythmic changes,
 fragmentation, extension, register movement, harmonic reinterpretation
 and countermelody while preserving thematic identity.
+
+LONG-FORM DEVELOPMENT
+
+Take the requested duration into account.
+
+For longer generations, especially 45 to 90 seconds, describe a
+musical trajectory rather than a static texture.
+
+Encourage the piece to evolve through several related stages.
+
+For example, when appropriate:
+
+- establish the principal musical idea
+- develop the motif and harmony
+- introduce contrast or increased tension
+- transform instrumentation or register
+- revisit recognizable material with variation
+- move toward a deliberate resolution
+
+Do not prescribe timestamps.
+
+Do not force a rigid section structure when it conflicts with the
+user's musical idea.
+
+Do not ask MusicGen to restart the composition repeatedly.
+
+The result should feel like one developing performance.
 
 HUMAN PERFORMANCE
 
@@ -269,9 +346,6 @@ Do not use headings.
 
 
 def wait_for_ollama(timeout=60):
-    """
-    Wait until the local Ollama server is ready.
-    """
     start = time.time()
 
     while time.time() - start < timeout:
@@ -287,9 +361,6 @@ def wait_for_ollama(timeout=60):
 
 
 def _clean_conversation(conversation):
-    """
-    Remove SAMPLE trigger messages and normalize conversation messages.
-    """
     cleaned = []
 
     for message in conversation or []:
@@ -299,7 +370,6 @@ def _clean_conversation(conversation):
         if not content:
             continue
 
-        # SAMPLE is a control command, not musical conversation.
         if content.upper() == "SAMPLE":
             continue
 
@@ -315,9 +385,6 @@ def _clean_conversation(conversation):
 
 
 def _messages(conversation):
-    """
-    Build the conversation sent to Maestro for normal chat.
-    """
     return [
         {
             "role": "system",
@@ -328,12 +395,6 @@ def _messages(conversation):
 
 
 def get_latest_maestro_direction(conversation):
-    """
-    Return Maestro's most recent musical response.
-
-    The web client can send this explicitly as well, but this fallback
-    keeps the Serverless backend robust when called directly.
-    """
     cleaned = _clean_conversation(conversation)
 
     for message in reversed(cleaned):
@@ -344,9 +405,6 @@ def get_latest_maestro_direction(conversation):
 
 
 def chat_with_maestro(conversation):
-    """
-    Continue the musical conversation with Maestro.
-    """
     response = ollama.chat(
         model=OLLAMA_MODEL,
         messages=_messages(conversation),
@@ -363,14 +421,8 @@ def compile_music_prompt(
     bpm,
     has_reference,
     latest_maestro_direction=None,
+    duration=None,
 ):
-    """
-    Compile the complete conversation into the final MusicGen prompt.
-
-    The latest Maestro direction is explicitly separated from the rest
-    of the conversation so the compiler treats it as the current musical
-    decision rather than averaging all previous ideas equally.
-    """
     cleaned = _clean_conversation(conversation)
 
     if not latest_maestro_direction:
@@ -378,12 +430,21 @@ def compile_music_prompt(
             get_latest_maestro_direction(cleaned)
         )
 
+    duration_text = (
+        f"{float(duration):.0f} seconds"
+        if duration is not None
+        else "Not specified"
+    )
+
     user_prompt = f"""
 Compile the following MAIX composition session into the final MusicGen
 conditioning prompt.
 
 BPM:
 {bpm}
+
+REQUESTED DURATION:
+{duration_text}
 
 REFERENCE AUDIO PRESENT:
 {"YES" if has_reference else "NO"}
@@ -398,8 +459,7 @@ Construct ONE coherent description of the desired music.
 
 Preserve the user's explicit aesthetic and instrumentation.
 
-Where compatible with those decisions, make the musical behavior
-specific:
+Where compatible with those decisions:
 
 - establish recognizable thematic material
 - develop rather than simply repeat it
@@ -409,6 +469,9 @@ specific:
 - let instruments interact rather than remain static
 - give the passage a sense of direction and destination
 - describe realistic performance and physical texture when useful
+
+For longer durations, describe development across the whole performance
+rather than requesting a short musical loop repeated many times.
 
 Do not fill the prompt with generic adjectives.
 
