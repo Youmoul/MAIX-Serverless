@@ -17,7 +17,12 @@ OLLAMA_MODEL = os.getenv(
 # MUSICGEN GENERATION
 # ---------------------------------------------------------
 
-TEMPERATURE = 0.4
+# B.2:
+# Slightly more generative freedom than the previous 0.4,
+# while keeping the rest of the proven MAIX generation
+# configuration unchanged.
+TEMPERATURE = 0.5
+
 CFG_COEF = 4.0
 TOP_K = 250
 TOP_P = 0.0
@@ -33,7 +38,6 @@ DEFAULT_BPM = 92
 DEFAULT_DURATION = 20
 DEFAULT_REFERENCE_SECONDS = 10
 
-# MAIX long-form experimental maximum.
 MAX_DURATION = 90
 
 
