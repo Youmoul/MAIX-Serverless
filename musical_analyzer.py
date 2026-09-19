@@ -9,22 +9,34 @@ PITCH_CLASSES = [
     "F#", "G", "G#", "A", "A#", "B",
 ]
 
-MAJOR_PROFILE = np.array([
-    6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
-    2.52, 5.19, 2.39, 3.66, 2.29, 2.88,
-], dtype=np.float64)
+# Krumhansl-style pitch-class profiles.
+# Used only for approximate tonal-center estimation.
+MAJOR_PROFILE = np.array(
+    [
+        6.35, 2.23, 3.48, 2.33,
+        4.38, 4.09, 2.52, 5.19,
+        2.39, 3.66, 2.29, 2.88,
+    ],
+    dtype=np.float64,
+)
 
-MINOR_PROFILE = np.array([
-    6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
-    2.54, 4.75, 3.98, 2.69, 3.34, 3.17,
-], dtype=np.float64)
+MINOR_PROFILE = np.array(
+    [
+        6.33, 2.68, 3.52, 5.38,
+        2.60, 3.53, 2.54, 4.75,
+        3.98, 2.69, 3.34, 3.17,
+    ],
+    dtype=np.float64,
+)
 
 
 def _safe_float(value, default=0.0):
     try:
         value = float(value)
+
         if math.isfinite(value):
             return value
+
     except (TypeError, ValueError):
         pass
 
@@ -32,7 +44,10 @@ def _safe_float(value, default=0.0):
 
 
 def _normalize(values):
-    values = np.asarray(values, dtype=np.float64)
+    values = np.asarray(
+        values,
+        dtype=np.float64,
+    )
 
     total = np.sum(values)
 
@@ -43,17 +58,33 @@ def _normalize(values):
 
 
 def _rotate_profile(profile, tonic):
-    return np.roll(profile, int(tonic))
+    return np.roll(
+        profile,
+        int(tonic),
+    )
 
 
 def _correlation(a, b):
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
+    a = np.asarray(
+        a,
+        dtype=np.float64,
+    )
 
-    if np.std(a) < 1e-8 or np.std(b) < 1e-8:
+    b = np.asarray(
+        b,
+        dtype=np.float64,
+    )
+
+    if (
+        np.std(a) < 1e-8
+        or np.std(b) < 1e-8
+    ):
         return 0.0
 
-    value = np.corrcoef(a, b)[0, 1]
+    value = np.corrcoef(
+        a,
+        b,
+    )[0, 1]
 
     if not np.isfinite(value):
         return 0.0
@@ -63,25 +94,33 @@ def _correlation(a, b):
 
 def _estimate_key(chroma_mean):
     """
-    Lightweight tonal-center estimate using major/minor pitch-class
-    profiles.
+    Estimate tonal center from global chroma.
 
-    This is intentionally reported as an estimate, not ground truth.
+    This is intentionally approximate.
     """
 
-    chroma_mean = _normalize(chroma_mean)
+    chroma_mean = _normalize(
+        chroma_mean
+    )
 
     candidates = []
 
     for tonic in range(12):
+
         major_score = _correlation(
             chroma_mean,
-            _rotate_profile(MAJOR_PROFILE, tonic),
+            _rotate_profile(
+                MAJOR_PROFILE,
+                tonic,
+            ),
         )
 
         minor_score = _correlation(
             chroma_mean,
-            _rotate_profile(MINOR_PROFILE, tonic),
+            _rotate_profile(
+                MINOR_PROFILE,
+                tonic,
+            ),
         )
 
         candidates.append(
@@ -103,27 +142,48 @@ def _estimate_key(chroma_mean):
         reverse=True,
     )
 
-    best_score, best_key = candidates[0]
+    best_score, best_key = (
+        candidates[0]
+    )
+
+    confidence = max(
+        0.0,
+        min(
+            1.0,
+            (best_score + 1.0) / 2.0,
+        ),
+    )
 
     return {
         "key": best_key,
         "confidence": round(
-            max(0.0, min(1.0, (best_score + 1.0) / 2.0)),
+            confidence,
             3,
         ),
     }
 
 
-def _strong_pitch_classes(chroma_mean, count=6):
-    chroma_mean = _normalize(chroma_mean)
+def _strong_pitch_classes(
+    chroma_mean,
+    count=6,
+):
+    chroma_mean = _normalize(
+        chroma_mean
+    )
 
-    indices = np.argsort(chroma_mean)[::-1][:count]
+    indices = np.argsort(
+        chroma_mean
+    )[::-1][:count]
 
     return [
         {
-            "pitch_class": PITCH_CLASSES[int(index)],
+            "pitch_class": (
+                PITCH_CLASSES[int(index)]
+            ),
             "strength": round(
-                float(chroma_mean[index]),
+                float(
+                    chroma_mean[index]
+                ),
                 4,
             ),
         }
@@ -131,12 +191,18 @@ def _strong_pitch_classes(chroma_mean, count=6):
     ]
 
 
-def _segment_harmony(chroma, times, duration, segments=6):
+def _segment_harmony(
+    chroma,
+    times,
+    duration,
+    segments=6,
+):
     """
-    Summarize pitch-class activity through time.
+    Describe harmonic pitch-class activity
+    through the selected reference region.
 
-    We intentionally avoid pretending these are exact chord labels.
-    Dense/polyphonic recordings make exact chord recognition uncertain.
+    We deliberately do NOT label these as
+    exact chords.
     """
 
     if chroma.shape[1] == 0:
@@ -151,7 +217,11 @@ def _segment_harmony(chroma, times, duration, segments=6):
         1,
         min(
             int(segments),
-            int(math.ceil(duration / 2.5)),
+            int(
+                math.ceil(
+                    duration / 2.5
+                )
+            ),
         ),
     )
 
@@ -163,9 +233,16 @@ def _segment_harmony(chroma, times, duration, segments=6):
 
     output = []
 
-    for index in range(segment_count):
-        start = float(boundaries[index])
-        end = float(boundaries[index + 1])
+    for index in range(
+        segment_count
+    ):
+        start = float(
+            boundaries[index]
+        )
+
+        end = float(
+            boundaries[index + 1]
+        )
 
         mask = (
             (times >= start)
@@ -182,14 +259,24 @@ def _segment_harmony(chroma, times, duration, segments=6):
 
         local = _normalize(local)
 
-        strongest = np.argsort(local)[::-1][:4]
+        strongest = np.argsort(
+            local
+        )[::-1][:4]
 
         output.append(
             {
-                "start": round(start, 2),
-                "end": round(end, 2),
+                "start": round(
+                    start,
+                    2,
+                ),
+                "end": round(
+                    end,
+                    2,
+                ),
                 "dominant_pitch_classes": [
-                    PITCH_CLASSES[int(pc)]
+                    PITCH_CLASSES[
+                        int(pc)
+                    ]
                     for pc in strongest
                 ],
             }
@@ -198,11 +285,18 @@ def _segment_harmony(chroma, times, duration, segments=6):
     return output
 
 
-def _phrase_boundaries(onset_env, sr, hop_length, duration):
+def _phrase_boundaries(
+    onset_env,
+    sr,
+    hop_length,
+    duration,
+):
     """
-    Produce a small set of likely musical change/breathing locations.
+    Estimate a few musically interesting
+    change/breathing points.
 
-    These are hints for Maestro, not hard segmentation.
+    These are hints for Maestro, not hard
+    segmentation boundaries.
     """
 
     if len(onset_env) < 4:
@@ -210,13 +304,22 @@ def _phrase_boundaries(onset_env, sr, hop_length, duration):
 
     smooth_size = max(
         3,
-        int(round(0.35 * sr / hop_length)),
+        int(
+            round(
+                0.35
+                * sr
+                / hop_length
+            )
+        ),
     )
 
-    kernel = np.ones(
-        smooth_size,
-        dtype=np.float64,
-    ) / smooth_size
+    kernel = (
+        np.ones(
+            smooth_size,
+            dtype=np.float64,
+        )
+        / smooth_size
+    )
 
     smooth = np.convolve(
         onset_env,
@@ -243,10 +346,12 @@ def _phrase_boundaries(onset_env, sr, hop_length, duration):
         derivative >= threshold
     )[0]
 
-    candidate_times = librosa.frames_to_time(
-        candidate_frames,
-        sr=sr,
-        hop_length=hop_length,
+    candidate_times = (
+        librosa.frames_to_time(
+            candidate_frames,
+            sr=sr,
+            hop_length=hop_length,
+        )
     )
 
     selected = []
@@ -264,7 +369,8 @@ def _phrase_boundaries(onset_env, sr, hop_length, duration):
 
         if (
             not selected
-            or value - selected[-1] >= minimum_gap
+            or value - selected[-1]
+            >= minimum_gap
         ):
             selected.append(value)
 
@@ -272,12 +378,20 @@ def _phrase_boundaries(onset_env, sr, hop_length, duration):
             break
 
     return [
-        round(value, 2)
+        round(
+            value,
+            2,
+        )
         for value in selected
     ]
 
 
-def _activity_profile(onset_env, sr, hop_length, duration):
+def _activity_profile(
+    onset_env,
+    sr,
+    hop_length,
+    duration,
+):
     if len(onset_env) == 0:
         return []
 
@@ -285,14 +399,22 @@ def _activity_profile(onset_env, sr, hop_length, duration):
         1,
         min(
             6,
-            int(math.ceil(duration / 3.0)),
+            int(
+                math.ceil(
+                    duration / 3.0
+                )
+            ),
         ),
     )
 
-    frame_times = librosa.frames_to_time(
-        np.arange(len(onset_env)),
-        sr=sr,
-        hop_length=hop_length,
+    frame_times = (
+        librosa.frames_to_time(
+            np.arange(
+                len(onset_env)
+            ),
+            sr=sr,
+            hop_length=hop_length,
+        )
     )
 
     boundaries = np.linspace(
@@ -301,15 +423,25 @@ def _activity_profile(onset_env, sr, hop_length, duration):
         segment_count + 1,
     )
 
-    global_mean = float(
-        np.mean(onset_env)
-    ) + 1e-8
+    global_mean = (
+        float(
+            np.mean(onset_env)
+        )
+        + 1e-8
+    )
 
     output = []
 
-    for index in range(segment_count):
-        start = float(boundaries[index])
-        end = float(boundaries[index + 1])
+    for index in range(
+        segment_count
+    ):
+        start = float(
+            boundaries[index]
+        )
+
+        end = float(
+            boundaries[index + 1]
+        )
 
         mask = (
             (frame_times >= start)
@@ -325,19 +457,29 @@ def _activity_profile(onset_env, sr, hop_length, duration):
             )
         )
 
-        relative = local / global_mean
+        relative = (
+            local / global_mean
+        )
 
         if relative < 0.75:
             label = "sparse"
+
         elif relative > 1.3:
             label = "active"
+
         else:
             label = "moderate"
 
         output.append(
             {
-                "start": round(start, 2),
-                "end": round(end, 2),
+                "start": round(
+                    start,
+                    2,
+                ),
+                "end": round(
+                    end,
+                    2,
+                ),
                 "activity": label,
                 "relative_density": round(
                     relative,
@@ -349,28 +491,144 @@ def _activity_profile(onset_env, sr, hop_length, duration):
     return output
 
 
-def _spectral_summary(y, sr):
-    centroid = librosa.feature.spectral_centroid(
-        y=y,
-        sr=sr,
+def _spectral_summary(
+    y,
+    sr,
+):
+    centroid = (
+        librosa.feature
+        .spectral_centroid(
+            y=y,
+            sr=sr,
+        )
     )
 
-    rolloff = librosa.feature.spectral_rolloff(
-        y=y,
-        sr=sr,
-        roll_percent=0.85,
+    rolloff = (
+        librosa.feature
+        .spectral_rolloff(
+            y=y,
+            sr=sr,
+            roll_percent=0.85,
+        )
     )
 
     return {
         "spectral_centroid_hz": round(
-            float(np.mean(centroid)),
+            float(
+                np.mean(centroid)
+            ),
             1,
         ),
         "spectral_rolloff_hz": round(
-            float(np.mean(rolloff)),
+            float(
+                np.mean(rolloff)
+            ),
             1,
         ),
     }
+
+
+def _estimate_register(
+    harmonic,
+    sr,
+    hop_length,
+):
+    """
+    Approximate dominant pitched register.
+
+    This is not polyphonic transcription.
+    """
+
+    try:
+        pitches, magnitudes = (
+            librosa.piptrack(
+                y=harmonic,
+                sr=sr,
+                hop_length=hop_length,
+            )
+        )
+
+        pitch_values = []
+
+        for frame in range(
+            magnitudes.shape[1]
+        ):
+            magnitude_column = (
+                magnitudes[:, frame]
+            )
+
+            if (
+                np.max(
+                    magnitude_column
+                )
+                <= 0
+            ):
+                continue
+
+            index = int(
+                np.argmax(
+                    magnitude_column
+                )
+            )
+
+            pitch = float(
+                pitches[
+                    index,
+                    frame,
+                ]
+            )
+
+            if pitch > 0:
+                pitch_values.append(
+                    pitch
+                )
+
+        if not pitch_values:
+            return None
+
+        pitch_array = np.asarray(
+            pitch_values,
+            dtype=np.float64,
+        )
+
+        low_pitch = float(
+            np.percentile(
+                pitch_array,
+                10,
+            )
+        )
+
+        median_pitch = float(
+            np.percentile(
+                pitch_array,
+                50,
+            )
+        )
+
+        high_pitch = float(
+            np.percentile(
+                pitch_array,
+                90,
+            )
+        )
+
+        return {
+            "low_hz": round(
+                low_pitch,
+                1,
+            ),
+            "median_hz": round(
+                median_pitch,
+                1,
+            ),
+            "high_hz": round(
+                high_pitch,
+                1,
+            ),
+        }
+
+    except Exception:
+        return None
 
 
 def analyze_reference(
@@ -379,14 +637,16 @@ def analyze_reference(
     seconds=10.0,
 ):
     """
-    Analyze exactly the same selected source region that MAIX will use
-    for MusicGen melodic/chroma conditioning.
+    Analyze exactly the selected reference
+    region that will also be supplied to
+    MusicGen.
 
-    Returns compact musical evidence intended for Qwen.
+    Returns compact musical evidence for
+    Maestro/Qwen.
 
-    The analysis is deliberately conservative:
-    tonal center and harmonic regions are estimates, not declarations
-    of exact transcription.
+    The results are intentionally conservative:
+    they are analysis hints, not exact musical
+    transcription.
     """
 
     start = max(
@@ -396,7 +656,10 @@ def analyze_reference(
 
     seconds = max(
         1.0,
-        _safe_float(seconds, 10.0),
+        _safe_float(
+            seconds,
+            10.0,
+        ),
     )
 
     y, sr = librosa.load(
@@ -407,10 +670,16 @@ def analyze_reference(
         duration=seconds,
     )
 
-    if y is None or len(y) == 0:
+    if (
+        y is None
+        or len(y) == 0
+    ):
         return {
             "available": False,
-            "reason": "Reference region contained no readable audio.",
+            "reason": (
+                "Reference region contained "
+                "no readable audio."
+            ),
         }
 
     duration = float(
@@ -422,23 +691,33 @@ def analyze_reference(
 
     hop_length = 512
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
     # Harmonic / percussive separation
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
 
-    harmonic, percussive = librosa.effects.hpss(y)
+    harmonic, percussive = (
+        librosa.effects.hpss(y)
+    )
 
-    if np.max(np.abs(harmonic)) < 1e-8:
+    if (
+        np.max(
+            np.abs(harmonic)
+        )
+        < 1e-8
+    ):
         harmonic = y
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
     # Chroma
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
 
-    chroma = librosa.feature.chroma_cqt(
-        y=harmonic,
-        sr=sr,
-        hop_length=hop_length,
+    chroma = (
+        librosa.feature
+        .chroma_cqt(
+            y=harmonic,
+            sr=sr,
+            hop_length=hop_length,
+        )
     )
 
     chroma_mean = np.mean(
@@ -446,150 +725,105 @@ def analyze_reference(
         axis=1,
     )
 
-    chroma_times = librosa.frames_to_time(
-        np.arange(chroma.shape[1]),
-        sr=sr,
-        hop_length=hop_length,
+    chroma_times = (
+        librosa.frames_to_time(
+            np.arange(
+                chroma.shape[1]
+            ),
+            sr=sr,
+            hop_length=hop_length,
+        )
     )
 
-    # ---------------------------------------------------------
-    # Tempo / onset activity
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
+    # Tempo / activity
+    # -----------------------------------------------------
 
-    onset_env = librosa.onset.onset_strength(
-        y=percussive,
-        sr=sr,
-        hop_length=hop_length,
+    onset_env = (
+        librosa.onset
+        .onset_strength(
+            y=percussive,
+            sr=sr,
+            hop_length=hop_length,
+        )
     )
 
-    tempo_value = librosa.feature.tempo(
-        onset_envelope=onset_env,
-        sr=sr,
-        hop_length=hop_length,
-        aggregate=np.median,
+    tempo_value = (
+        librosa.feature.tempo(
+            onset_envelope=onset_env,
+            sr=sr,
+            hop_length=hop_length,
+            aggregate=np.median,
+        )
     )
 
     if np.size(tempo_value):
         estimated_tempo = float(
-            np.asarray(tempo_value).flatten()[0]
+            np.asarray(
+                tempo_value
+            ).flatten()[0]
         )
+
     else:
         estimated_tempo = 0.0
 
-    # ---------------------------------------------------------
-    # Pitch/register estimate
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
+    # Register
+    # -----------------------------------------------------
 
-    try:
-        pitches, magnitudes = librosa.piptrack(
-            y=harmonic,
-            sr=sr,
-            hop_length=hop_length,
-        )
+    register = _estimate_register(
+        harmonic,
+        sr,
+        hop_length,
+    )
 
-        pitch_values = []
+    # -----------------------------------------------------
+    # Result
+    # -----------------------------------------------------
 
-        for frame in range(
-            magnitudes.shape[1]
-        ):
-            magnitude_column = magnitudes[:, frame]
-
-            if np.max(magnitude_column) <= 0:
-                continue
-
-            index = int(
-                np.argmax(
-                    magnitude_column
-                )
-            )
-
-            pitch = float(
-                pitches[index, frame]
-            )
-
-            if pitch > 0:
-                pitch_values.append(pitch)
-
-        if pitch_values:
-            pitch_array = np.asarray(
-                pitch_values,
-                dtype=np.float64,
-            )
-
-            low_pitch = float(
-                np.percentile(
-                    pitch_array,
-                    10,
-                )
-            )
-
-            median_pitch = float(
-                np.percentile(
-                    pitch_array,
-                    50,
-                )
-            )
-
-            high_pitch = float(
-                np.percentile(
-                    pitch_array,
-                    90,
-                )
-            )
-
-            register = {
-                "low_hz": round(
-                    low_pitch,
-                    1,
-                ),
-                "median_hz": round(
-                    median_pitch,
-                    1,
-                ),
-                "high_hz": round(
-                    high_pitch,
-                    1,
-                ),
-            }
-
-        else:
-            register = None
-
-    except Exception:
-        register = None
-
-    # ---------------------------------------------------------
-    # Final compact result
-    # ---------------------------------------------------------
-
-    result = {
+    return {
         "available": True,
+
         "analysis_type": (
-            "estimated musical analysis of selected reference region"
+            "estimated musical analysis "
+            "of selected reference region"
         ),
+
         "source_start_seconds": round(
             start,
             2,
         ),
+
         "analyzed_duration_seconds": round(
             duration,
             2,
         ),
+
         "estimated_tempo_bpm": round(
             estimated_tempo,
             1,
         ),
-        "estimated_tonal_center": _estimate_key(
-            chroma_mean
+
+        "estimated_tonal_center": (
+            _estimate_key(
+                chroma_mean
+            )
         ),
-        "strong_pitch_classes": _strong_pitch_classes(
-            chroma_mean
+
+        "strong_pitch_classes": (
+            _strong_pitch_classes(
+                chroma_mean
+            )
         ),
-        "harmonic_regions": _segment_harmony(
-            chroma,
-            chroma_times,
-            duration,
+
+        "harmonic_regions": (
+            _segment_harmony(
+                chroma,
+                chroma_times,
+                duration,
+            )
         ),
+
         "likely_phrase_or_change_points_seconds": (
             _phrase_boundaries(
                 onset_env,
@@ -598,22 +832,32 @@ def analyze_reference(
                 duration,
             )
         ),
-        "activity_profile": _activity_profile(
-            onset_env,
-            sr,
-            hop_length,
-            duration,
+
+        "activity_profile": (
+            _activity_profile(
+                onset_env,
+                sr,
+                hop_length,
+                duration,
+            )
         ),
-        "dominant_pitch_register_hz": register,
-        "spectral_character": _spectral_summary(
-            y,
-            sr,
+
+        "dominant_pitch_register_hz": (
+            register
         ),
+
+        "spectral_character": (
+            _spectral_summary(
+                y,
+                sr,
+            )
+        ),
+
         "interpretation_warning": (
-            "Tonal center, harmonic regions, register and phrase "
-            "locations are estimates from mixed audio. Use them as "
-            "musical evidence, not exact transcription."
+            "Tonal center, harmonic regions, "
+            "register and phrase locations are "
+            "estimates from mixed audio. Use "
+            "them as musical evidence, not "
+            "exact transcription."
         ),
     }
-
-    return result
